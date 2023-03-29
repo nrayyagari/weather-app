@@ -1,0 +1,49 @@
+name: Build and push Docker image to ECR and update Kubernetes manifest file
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO_NAME: microservice2
+  K8S_REPO_NAME: https://github.com/nrayyagari/kubernetes-microservices.git
+  K8S_FILE_PATH: kubernetes-manifests/weather-app-manifest.yaml
+
+jobs:
+  build-and-push-docker-image-to-ecr-and-update-kubernetes-manifest-file:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Docker image
+        run: |
+          docker build -t $ECR_REPO_NAME:$GITHUB_SHA .
+          docker tag $ECR_REPO_NAME:$GITHUB_SHA $ECR_REPO_NAME:$GITHUB_RUN_NUMBER
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Push Docker image to Amazon ECR
+        run: |
+          docker push $ECR_REPO_NAME:$GITHUB_SHA
+          docker push $ECR_REPO_NAME:$GITHUB_RUN_NUMBER
+
+      - name: Update Kubernetes manifest file in another repository
+        run: |
+          sed -i "s|image:.*|image: $ECR_REPO_NAME:$GITHUB_RUN_NUMBER|g" $K8S_FILE_PATH
+          git config --global user.email "<your-email>"
+          git config --global user.name "<your-name>"
+          git commit -m "Update Kubernetes manifest file" $K8S_FILE_PATH
+          git push https://$GITHUB_TOKEN@github.com/<your-github-username>/<your-kubernetes-repo-name>.git HEAD:main
